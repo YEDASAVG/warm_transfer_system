@@ -1,0 +1,136 @@
+# Dependencies# Dependencies
+
+node_modules/__pycache__/
+
+backend/venv/*.py[cod]
+
+backend/__pycache__/*$py.class
+
+*.so
+
+# Environment variables.Python
+
+.envbuild/
+
+backend/.envdevelop-eggs/
+
+frontend/.env.localdist/
+
+downloads/
+
+# Build outputseggs/
+
+backend/dist/.eggs/
+
+frontend/.next/lib/
+
+frontend/out/lib64/
+
+parts/
+
+# Logssdist/
+
+*.logvar/
+
+npm-debug.log*wheels/
+
+yarn-debug.log*share/python-wheels/
+
+yarn-error.log**.egg-info/
+
+.installed.cfg
+
+# Runtime data*.egg
+
+pidsMANIFEST
+
+*.pid
+
+*.seed# Environment variables
+
+*.pid.lock.env
+
+.env.local
+
+# Coverage directory used by tools like istanbul.env.development.local
+
+coverage/.env.test.local
+
+.env.production.local
+
+# IDE
+
+.vscode/# IDEs
+
+.idea/.vscode/
+
+*.swp.idea/
+
+*.swo*.swp
+
+*.swo
+
+# OS*~
+
+.DS_Store
+
+Thumbs.db# Node.js
+
+node_modules/
+
+# Pythonnpm-debug.log*
+
+*.pycyarn-debug.log*
+
+*.pyoyarn-error.log*
+
+*.pydlerna-debug.log*
+
+__pycache__/.pnpm-debug.log*
+
+*.so
+
+.Python# Next.js
+
+build/.next/
+
+develop-eggs/out/
+
+dist/
+
+downloads/# Logs
+
+eggs/logs
+
+.eggs/*.log
+
+lib/
+
+lib64/# Temporary files
+
+parts/*.tmp
+
+sdist/*.temp
+
+var/
+
+wheels/# OS generated files
+
+*.egg-info/.DS_Store
+
+.installed.cfg.DS_Store?
+
+*.egg._*
+
+.Spotlight-V100
+
+# Next.js.Trashes
+
+.next/ehthumbs.db
+
+out/Thumbs.db
+build/
+
+# Misc
+*.tgz
+*.tar.gz
