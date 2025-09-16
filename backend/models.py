@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, Literal
+from typing import Literal
 from datetime import datetime
 
 
@@ -19,7 +19,7 @@ class RoomCreateResponse(BaseModel):
 class TransferRequest(BaseModel):
     caller_room_id: str
     agent_a_id: str
-    mock_transcript: str = "Customer called about billing issue. Needs specialist help."
+    transcript: str  # Real transcript from actual conversation
 
 
 class CallSummary(BaseModel):
@@ -50,3 +50,17 @@ class ParticipantInfo(BaseModel):
     identity: str
     role: str
     connected: bool
+
+
+class TranscriptionRequest(BaseModel):
+    audio_data: str  # Base64 encoded audio data
+    room_id: str
+    participant_id: str
+    audio_format: str = "webm"  # webm, wav, mp3, etc.
+
+
+class TranscriptionResponse(BaseModel):
+    transcript: str
+    confidence: float
+    processing_time: float
+    language: str = "en"

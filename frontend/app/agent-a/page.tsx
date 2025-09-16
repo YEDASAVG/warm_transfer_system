@@ -1,186 +1,143 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Card, CardBody, CardHeader, Button, LoadingSpinner } from '@/components/ui';
-import { RoomComponent } from '@/components/room-component';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { AgentADashboard } from '@/components/AgentADashboard';
 import { useAppStore } from '@/lib/store';
-import { apiClient } from '@/lib/api';
 
 export default function AgentAPage() {
   const router = useRouter();
-  const { 
-    setParticipantInfo, 
-    currentRoom, 
-    setCurrentRoom,
-    connectionState,
-    participantName 
+  const {
+    // Call state from Zustand store
+    isActive,
+    roomId,
+    token,
+    
+    // Actions from Zustand store
+    createRoom,
+    initiateTransfer,
+    confirmTransfer,
+    setParticipantInfo,
+    isLoading,
+    error,
+    clearError,
+    reset
   } = useAppStore();
   
-  const [roomToken, setRoomToken] = useState<string>('');
-  const [serverUrl, setServerUrl] = useState<string>('');
-  const [isJoining, setIsJoining] = useState(false);
-  const [error, setError] = useState<string>('');
   const [name, setName] = useState('');
+  const [isJoining, setIsJoining] = useState(false);
+  const [localError, setLocalError] = useState<string>('');
+
+  const handleInitiateTransfer = async (transcript: string) => {
+    if (!roomId) throw new Error('No room ID available');
+    
+    return await initiateTransfer(roomId, transcript);
+  };
+
+  const handleConfirmTransfer = async (summary: string) => {
+    if (!roomId) throw new Error('No room ID available');
+    
+    await confirmTransfer(roomId, summary, 'Specialist Agent');
+  };
 
   const handleJoinRoom = async () => {
     if (!name.trim()) {
-      setError('Please enter your name');
+      setLocalError('Please enter your agent name');
       return;
     }
 
     setIsJoining(true);
-    setError('');
+    setLocalError('');
+    clearError();
 
     try {
-      const roomName = `agent-a-room-${Date.now()}`;
-      
-      const response = await apiClient.createRoom({
-        room_name: roomName,
-        participant_name: name,
-        role: 'agent_a'
-      });
-
-      setRoomToken(response.token);
-      setServerUrl(response.ws_url);
-      setCurrentRoom(response.room_id);
       setParticipantInfo(name, 'agent_a');
-      
-    } catch (err) {
-      setError('Failed to join room. Please check your connection and try again.');
-      console.error('Failed to join room:', err);
+      await createRoom('agent-a-room', name, 'agent_a');
+    } catch (error) {
+      console.error('Failed to join room:', error);
+      setLocalError('Failed to join dashboard. Please try again.');
     } finally {
       setIsJoining(false);
     }
-  };
-
-  const handleLeaveRoom = () => {
-    setCurrentRoom(null);
-    setRoomToken('');
-    setServerUrl('');
   };
 
   const handleBackHome = () => {
     router.push('/');
   };
 
-  if (currentRoom && roomToken) {
+  // If joined, show the sophisticated dashboard
+  if (isActive && token && roomId) {
     return (
-      <div className="min-h-screen bg-gray-50 p-4">
-        <div className="max-w-4xl mx-auto">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Agent A Interface</h1>
-              <p className="text-gray-600">Connected as: {participantName}</p>
-            </div>
-            <div className="flex space-x-3">
-              <Button variant="secondary" onClick={handleLeaveRoom}>
-                Leave Room
-              </Button>
-              <Button variant="secondary" onClick={handleBackHome}>
-                Back to Home
-              </Button>
-            </div>
-          </div>
-
-          {/* Room Component */}
-          <div className="h-[600px]">
-            <RoomComponent
-              token={roomToken}
-              serverUrl={serverUrl}
-              roomName={currentRoom}
-              onDisconnected={handleLeaveRoom}
-            />
-          </div>
-
-          {/* Agent Controls */}
-          <Card className="mt-6">
-            <CardHeader>
-              <h3 className="font-semibold">Agent A Controls</h3>
-            </CardHeader>
-            <CardBody>
-              <div className="space-y-4">
-                <div className="flex space-x-3">
-                  <Button variant="primary">
-                    Transfer to Agent B
-                  </Button>
-                  <Button variant="secondary">
-                    Request Summary
-                  </Button>
-                  <Button variant="secondary">
-                    End Call
-                  </Button>
-                </div>
-                <div className="text-sm text-gray-600">
-                  <p>• Handle initial customer inquiries</p>
-                  <p>• Initiate warm transfers to Agent B when needed</p>
-                  <p>• Generate call summaries using AI</p>
-                </div>
-              </div>
-            </CardBody>
-          </Card>
-        </div>
-      </div>
+      <AgentADashboard 
+        onInitiateTransfer={handleInitiateTransfer}
+        onConfirmTransfer={handleConfirmTransfer}
+      />
     );
   }
 
+  // Show join form
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="max-w-md w-full">
-        <Card>
-          <CardHeader className="text-center">
-            <div className="text-4xl mb-4">👩‍💼</div>
-            <h1 className="text-2xl font-bold text-gray-900">Join as Agent A</h1>
-            <p className="text-gray-600">Handle initial calls and initiate transfers</p>
+    <div className="min-h-screen bg-background dark flex items-center justify-center p-6">
+      <div className="max-w-lg w-full">
+        <Card className="border-2">
+          <CardHeader className="text-center space-y-4">
+            <div className="text-6xl mb-2">👩‍💼</div>
+            <CardTitle className="text-3xl">Join as Agent A</CardTitle>
+            <CardDescription className="text-lg">
+              Access the professional agent dashboard to handle calls and initiate warm transfers
+            </CardDescription>
           </CardHeader>
           
-          <CardBody>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Agent Name
-                </label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Enter your agent name"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  disabled={isJoining}
-                />
-              </div>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-foreground">
+                Agent Name
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Enter your agent name"
+                className="w-full px-4 py-3 border border-border rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
+                disabled={isJoining || isLoading}
+              />
+            </div>
 
-              {error && (
-                <div className="text-red-600 text-sm bg-red-50 p-2 rounded">
-                  {error}
+            {(localError || error) && (
+              <div className="text-destructive text-sm bg-destructive/10 p-3 rounded-lg border border-destructive/20">
+                ⚠️ {localError || error}
+              </div>
+            )}
+
+            <Button
+              onClick={handleJoinRoom}
+              disabled={isJoining || isLoading || !name.trim()}
+              className="w-full h-12 text-base"
+              size="lg"
+            >
+              {(isJoining || isLoading) ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Joining Dashboard...</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span>🚀 Access Agent Dashboard</span>
                 </div>
               )}
+            </Button>
 
-              <Button
-                onClick={handleJoinRoom}
-                disabled={isJoining || !name.trim()}
-                className="w-full"
-              >
-                {isJoining ? (
-                  <div className="flex items-center space-x-2">
-                    <LoadingSpinner size="sm" />
-                    <span>Joining...</span>
-                  </div>
-                ) : (
-                  'Join as Agent A'
-                )}
-              </Button>
-
-              <Button
-                variant="secondary"
-                onClick={handleBackHome}
-                className="w-full"
-              >
-                Back to Home
-              </Button>
-            </div>
-          </CardBody>
+            <Button
+              variant="outline"
+              onClick={handleBackHome}
+              className="w-full"
+              size="lg"
+            >
+              ← Back to Home
+            </Button>
+          </CardContent>
         </Card>
       </div>
     </div>

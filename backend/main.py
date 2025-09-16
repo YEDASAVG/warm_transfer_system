@@ -1,6 +1,5 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 import time
 from datetime import datetime
 import os
@@ -13,9 +12,10 @@ load_dotenv()
 from config import settings
 from models import (
     RoomCreateRequest, RoomCreateResponse, TransferRequest, 
-    TransferResponse, HealthResponse, ParticipantInfo
+    TransferResponse, HealthResponse,
+    TranscriptionRequest, TranscriptionResponse
 )
-from services import LiveKitService, LLMService, TransferService
+from services import LiveKitService, LLMService, TransferService, TranscriptionService
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -36,6 +36,7 @@ app.add_middleware(
 # Initialize services
 livekit_service = LiveKitService()
 llm_service = LLMService()
+transcription_service = TranscriptionService()
 transfer_service = TransferService(livekit_service, llm_service)
 
 
@@ -99,7 +100,7 @@ async def initiate_transfer(request: TransferRequest):
         result = await transfer_service.initiate_transfer(
             request.caller_room_id,
             request.agent_a_id,
-            request.mock_transcript
+            request.transcript  # Real transcript instead of mock
         )
         
         return TransferResponse(
@@ -120,6 +121,25 @@ async def get_room_participants(room_id: str):
         return {"participants": participants}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get participants: {str(e)}")
+
+
+@app.post("/transcribe", response_model=TranscriptionResponse)
+async def transcribe_audio(request: TranscriptionRequest):
+    """Transcribe audio data using OpenAI Whisper API"""
+    try:
+        result = await transcription_service.transcribe_audio(
+            request.audio_data,
+            request.audio_format
+        )
+        
+        return TranscriptionResponse(
+            transcript=result["transcript"],
+            confidence=result["confidence"],
+            processing_time=result["processing_time"],
+            language=result["language"]
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
 
 
 @app.get("/")

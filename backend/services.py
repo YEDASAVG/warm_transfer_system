@@ -1,6 +1,9 @@
 import time
 import uuid
 import json
+import os
+import base64
+import tempfile
 import aiohttp
 from livekit import api
 import openai
@@ -401,3 +404,103 @@ class TransferService:
             "agent_b_token": agent_b_token,
             "summary": summary
         }
+
+
+class TranscriptionService:
+    """Real-time audio transcription using OpenAI Whisper API"""
+    
+    def __init__(self):
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        if not self.openai_api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is required")
+    
+    async def transcribe_audio(self, audio_data: str, audio_format: str = "webm") -> dict:
+        """
+        Transcribe audio data using OpenAI Whisper API
+        
+        Args:
+            audio_data: Base64 encoded audio data
+            audio_format: Audio format (webm, wav, mp3, etc.)
+            
+        Returns:
+            dict with transcript, confidence, processing_time, language
+        """
+        start_time = time.time()
+        
+        try:
+            # Decode base64 audio data
+            audio_bytes = base64.b64decode(audio_data)
+            
+            # Create temporary file
+            with tempfile.NamedTemporaryFile(suffix=f".{audio_format}", delete=False) as temp_file:
+                temp_file.write(audio_bytes)
+                temp_file_path = temp_file.name
+            
+            # Prepare multipart form data for OpenAI Whisper API
+            form_data = aiohttp.FormData()
+            form_data.add_field('file', open(temp_file_path, 'rb'), 
+                               filename=f"audio.{audio_format}", 
+                               content_type=f"audio/{audio_format}")
+            form_data.add_field('model', 'whisper-1')
+            form_data.add_field('response_format', 'verbose_json')
+            form_data.add_field('language', 'en')
+            
+            # Call OpenAI Whisper API
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    'https://api.openai.com/v1/audio/transcriptions',
+                    headers={
+                        'Authorization': f'Bearer {self.openai_api_key}'
+                    },
+                    data=form_data
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        processing_time = time.time() - start_time
+                        
+                        # Clean up temporary file
+                        os.unlink(temp_file_path)
+                        
+                        return {
+                            "transcript": result.get("text", ""),
+                            "confidence": 0.95,  # Whisper doesn't provide confidence, using default
+                            "processing_time": processing_time,
+                            "language": result.get("language", "en")
+                        }
+                    else:
+                        error_text = await response.text()
+                        raise Exception(f"OpenAI API error: {response.status} - {error_text}")
+                        
+        except Exception as e:
+            # Clean up temporary file if it exists
+            try:
+                os.unlink(temp_file_path)
+            except:
+                pass
+            
+            # Fallback to mock transcription for development
+            processing_time = time.time() - start_time
+            return {
+                "transcript": "[Audio transcription temporarily unavailable]",
+                "confidence": 0.0,
+                "processing_time": processing_time,
+                "language": "en"
+            }
+    
+    async def transcribe_stream(self, audio_chunks: list, audio_format: str = "webm") -> dict:
+        """
+        Transcribe streaming audio chunks
+        
+        Args:
+            audio_chunks: List of base64 encoded audio chunks
+            audio_format: Audio format
+            
+        Returns:
+            dict with accumulated transcript
+        """
+        # Combine audio chunks
+        combined_audio = b"".join([base64.b64decode(chunk) for chunk in audio_chunks])
+        combined_b64 = base64.b64encode(combined_audio).decode()
+        
+        # Transcribe combined audio
+        return await self.transcribe_audio(combined_b64, audio_format)

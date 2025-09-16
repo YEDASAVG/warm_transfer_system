@@ -1,56 +1,39 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { ScrollArea } from './ui/scroll-area';
 import { Separator } from './ui/separator';
-import { Phone, PhoneOff, Mic, MicOff, ArrowRight, FileText, Clock, User, Zap, Brain, Activity } from 'lucide-react';
+import { Phone, PhoneOff, Mic, MicOff, ArrowRight, FileText, User, Zap, Brain, Activity } from 'lucide-react';
 import { StatusBanner } from './StatusBanner';
 import { TransferSummaryModal } from './TransferSummaryModal';
-
-interface CallState {
-  isActive: boolean;
-  isOnHold: boolean;
-  isMuted: boolean;
-  isVideoEnabled: boolean;
-  duration: number;
-  callerName: string;
-  agentAName: string;
-  agentBName: string;
-  transcript: string;
-  transferStatus: 'none' | 'initiated' | 'summary-ready' | 'inviting-agent' | 'agent-joining' | 'complete';
-  transferSummary: string;
-  roomId?: string;
-  roomName?: string;
-}
+import { RoomComponent } from './room-component';
+import { useAppStore } from '@/lib/store';
 
 interface AgentADashboardProps {
-  callState: CallState;
-  updateCallState: (updates: Partial<CallState>) => void;
   onInitiateTransfer?: (transcript: string) => Promise<string>;
   onConfirmTransfer?: (summary: string) => Promise<void>;
 }
 
-export function AgentADashboard({ callState, updateCallState, onInitiateTransfer, onConfirmTransfer }: AgentADashboardProps) {
+export function AgentADashboard({ onInitiateTransfer, onConfirmTransfer }: AgentADashboardProps) {
   const [showTransferModal, setShowTransferModal] = useState(false);
-
-  // Simulate live transcript updates when call is active
-  useEffect(() => {
-    if (callState.isActive && callState.transcript.length < 200) {
-      const sampleTranscript = "Customer: Hi, I'm having trouble with my account login. Agent: I'd be happy to help you with that. Can you please provide your account email? Customer: Sure, it's john.smith@email.com. Agent: Thank you. I can see your account here. It looks like there was a security lock placed on it yesterday due to multiple failed login attempts.";
-      
-      const timer = setTimeout(() => {
-        const nextChar = sampleTranscript[callState.transcript.length];
-        if (nextChar) {
-          updateCallState({ 
-            transcript: callState.transcript + nextChar 
-          });
-        }
-      }, 100);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [callState.transcript, callState.isActive, updateCallState]);
+  
+  // Get all call state from Zustand store
+  const {
+    isActive,
+    isMuted,
+    duration,
+    callerName,
+    agentAName,
+    agentBName,
+    transcript,
+    transferStatus,
+    transferSummary,
+    roomName,
+    token,
+    updateCallState,
+    endCall
+  } = useAppStore();
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -61,7 +44,7 @@ export function AgentADashboard({ callState, updateCallState, onInitiateTransfer
   const handleInitiateTransfer = async () => {
     if (onInitiateTransfer) {
       try {
-        await onInitiateTransfer(callState.transcript);
+        await onInitiateTransfer(transcript);
         setShowTransferModal(true);
       } catch (error) {
         console.error('Failed to initiate transfer:', error);
@@ -110,7 +93,7 @@ export function AgentADashboard({ callState, updateCallState, onInitiateTransfer
   return (
     <div className="min-h-screen bg-background">
       {/* Status Banner */}
-      <StatusBanner transferStatus={callState.transferStatus} userRole="agentA" />
+      <StatusBanner transferStatus={transferStatus} userRole="agentA" />
 
       {/* Header */}
       <div className="bg-card border-b border-border px-4 py-4">
@@ -128,13 +111,37 @@ export function AgentADashboard({ callState, updateCallState, onInitiateTransfer
             <Badge variant="outline" className="bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/20">
               Agent A Active
             </Badge>
-            <div className="text-sm text-muted-foreground">{callState.agentAName}</div>
+            <div className="text-sm text-muted-foreground">{agentAName}</div>
           </div>
         </div>
       </div>
 
       {/* Main Dashboard */}
       <div className="max-w-7xl mx-auto p-4">
+        {/* Real LiveKit Video/Audio Interface */}
+        {token && roomName && (
+          <Card className="mb-6">
+            <CardContent className="p-6">
+              <div className="text-center mb-4">
+                <h2 className="text-xl text-foreground mb-2">Call with {callerName}</h2>
+                <p className="text-muted-foreground">Room: {roomName}</p>
+              </div>
+              <RoomComponent 
+                token={token}
+                roomName={roomName}
+                serverUrl={process.env.NEXT_PUBLIC_LIVEKIT_WS_URL || 'wss://localhost:7880'}
+                onDisconnected={() => updateCallState({ isActive: false, token: null, roomName: null })}
+                onTranscript={(text: string) => {
+                  // Update real transcript from actual audio
+                  updateCallState({ 
+                    transcript: transcript ? transcript + ' ' + text : text 
+                  });
+                }}
+              />
+            </CardContent>
+          </Card>
+        )}
+        
         <div className="grid lg:grid-cols-3 gap-6">
           {/* Call Information */}
           <div className="lg:col-span-1 space-y-6">
@@ -153,7 +160,7 @@ export function AgentADashboard({ callState, updateCallState, onInitiateTransfer
                     <User className="w-6 h-6 text-muted-foreground" />
                   </div>
                   <div>
-                    <h3 className="text-foreground">{callState.callerName}</h3>
+                    <h3 className="text-foreground">{callerName}</h3>
                     <p className="text-sm text-muted-foreground">Customer</p>
                   </div>
                 </div>
@@ -162,7 +169,7 @@ export function AgentADashboard({ callState, updateCallState, onInitiateTransfer
                 <div className="grid grid-cols-2 gap-4 pt-2">
                   <div className="bg-muted rounded-lg p-3 text-center">
                     <div className="text-lg font-mono text-foreground">
-                      {formatDuration(callState.duration)}
+                      {formatDuration(duration)}
                     </div>
                     <p className="text-xs text-muted-foreground">Duration</p>
                   </div>
@@ -179,18 +186,18 @@ export function AgentADashboard({ callState, updateCallState, onInitiateTransfer
                 <Separator />
                 <div className="flex gap-2">
                   <Button
-                    variant={callState.isMuted ? "destructive" : "outline"}
+                    variant={isMuted ? "destructive" : "outline"}
                     size="sm"
                     className="flex-1"
-                    onClick={() => updateCallState({ isMuted: !callState.isMuted })}
+                    onClick={() => updateCallState({ isMuted: !isMuted })}
                   >
-                    {callState.isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                    {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
                   </Button>
                   <Button
                     variant="destructive"
                     size="sm"
                     className="flex-1"
-                    onClick={() => updateCallState({ isActive: false })}
+                    onClick={() => endCall(roomName || undefined)}
                   >
                     <PhoneOff className="w-4 h-4" />
                   </Button>
@@ -207,12 +214,12 @@ export function AgentADashboard({ callState, updateCallState, onInitiateTransfer
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {callState.transferStatus === 'none' && (
+                {transferStatus === 'none' && (
                   <div className="space-y-3">
                     <Button 
                       className="w-full"
                       onClick={handleInitiateTransfer}
-                      disabled={!callState.isActive}
+                      disabled={!isActive}
                     >
                       <Zap className="w-4 h-4 mr-2" />
                       Initiate Warm Transfer
@@ -229,16 +236,16 @@ export function AgentADashboard({ callState, updateCallState, onInitiateTransfer
                   </div>
                 )}
 
-                {callState.transferStatus === 'initiated' && (
+                {transferStatus === 'initiated' && (
                   <div className="text-center py-4">
                     <div className="inline-flex items-center justify-center w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mb-2"></div>
                     <p className="text-sm text-muted-foreground">Generating AI summary...</p>
                   </div>
                 )}
 
-                {(callState.transferStatus === 'summary-ready' || 
-                  callState.transferStatus === 'inviting-agent' || 
-                  callState.transferStatus === 'agent-joining') && (
+                {(transferStatus === 'summary-ready' || 
+                  transferStatus === 'inviting-agent' || 
+                  transferStatus === 'agent-joining') && (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
                       <div className="w-2 h-2 bg-green-500 rounded-full"></div>
@@ -254,17 +261,17 @@ export function AgentADashboard({ callState, updateCallState, onInitiateTransfer
                       View Summary
                     </Button>
                     <div className="bg-muted rounded-lg p-3">
-                      <p className="text-sm text-foreground">Next: {callState.agentBName}</p>
+                      <p className="text-sm text-foreground">Next: {agentBName}</p>
                       <p className="text-xs text-muted-foreground">Specialist Agent</p>
                     </div>
                   </div>
                 )}
 
-                {callState.transferStatus === 'complete' && (
+                {transferStatus === 'complete' && (
                   <div className="text-center py-3">
                     <div className="text-green-600 dark:text-green-400 mb-2">✓ Transfer Complete</div>
                     <p className="text-sm text-muted-foreground">
-                      Customer connected to {callState.agentBName}
+                      Customer connected to {agentBName}
                     </p>
                   </div>
                 )}
@@ -288,9 +295,9 @@ export function AgentADashboard({ callState, updateCallState, onInitiateTransfer
               <CardContent className="flex-1">
                 <ScrollArea className="h-96 w-full">
                   <div className="space-y-4">
-                    {callState.transcript ? (
+                    {transcript ? (
                       <div className="space-y-3">
-                        {callState.transcript.split('. ').map((sentence, index) => {
+                        {transcript.split('. ').map((sentence, index) => {
                           if (!sentence.trim()) return null;
                           
                           const isCustomer = sentence.toLowerCase().includes('customer:') || 
@@ -306,7 +313,7 @@ export function AgentADashboard({ callState, updateCallState, onInitiateTransfer
                                   : 'bg-primary/10 text-foreground border border-primary/20'
                               }`}>
                                 <div className="text-xs mb-1 text-muted-foreground">
-                                  {isCustomer ? callState.callerName : callState.agentAName}
+                                  {isCustomer ? callerName : agentAName}
                                 </div>
                                 <div className="text-sm">
                                   {sentence.replace(/^(Customer:|Agent:)\s*/, '').trim()}.
@@ -337,7 +344,7 @@ export function AgentADashboard({ callState, updateCallState, onInitiateTransfer
                 </ScrollArea>
 
                 {/* AI Insights */}
-                {callState.transcript && (
+                {transcript && (
                   <div className="mt-4 bg-muted rounded-lg p-4">
                     <div className="flex items-center gap-2 mb-3">
                       <Brain className="w-4 h-4 text-primary" />
@@ -374,9 +381,9 @@ export function AgentADashboard({ callState, updateCallState, onInitiateTransfer
         isOpen={showTransferModal}
         onClose={() => setShowTransferModal(false)}
         onConfirm={handleConfirmTransfer}
-        summary={callState.transferSummary}
-        callerName={callState.callerName}
-        agentBName={callState.agentBName}
+        summary={transferSummary}
+        callerName={callerName}
+        agentBName={agentBName}
       />
     </div>
   );
