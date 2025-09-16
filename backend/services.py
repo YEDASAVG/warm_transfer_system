@@ -1,5 +1,7 @@
 import time
 import uuid
+import json
+import aiohttp
 from livekit import api
 import openai
 import groq
@@ -102,121 +104,237 @@ class LLMService:
     def _get_openai_client(self):
         """Lazy initialization of OpenAI client"""
         if self.openai_client is None:
-            self.openai_client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
+            try:
+                with open("debug_ai.log", "a") as f:
+                    f.write(f"🔧 Initializing OpenAI client...\n")
+                self.openai_client = openai.AsyncOpenAI(
+                    api_key=settings.openai_api_key
+                )
+                with open("debug_ai.log", "a") as f:
+                    f.write(f"✅ OpenAI client initialized successfully\n")
+            except Exception as e:
+                with open("debug_ai.log", "a") as f:
+                    f.write(f"❌ Failed to initialize OpenAI client: {type(e).__name__}: {str(e)}\n")
+                    import traceback
+                    f.write(f"📋 OpenAI Init Traceback: {traceback.format_exc()}\n")
+                self.openai_client = None
         return self.openai_client
 
     def _get_groq_client(self):
         """Lazy initialization of Groq client"""
         if self.groq_client is None:
-            self.groq_client = groq.AsyncGroq(api_key=settings.groq_api_key)
+            try:
+                with open("debug_ai.log", "a") as f:
+                    f.write(f"🔧 Initializing Groq client...\n")
+                self.groq_client = groq.AsyncGroq(
+                    api_key=settings.groq_api_key
+                )
+                with open("debug_ai.log", "a") as f:
+                    f.write(f"✅ Groq client initialized successfully\n")
+            except Exception as e:
+                with open("debug_ai.log", "a") as f:
+                    f.write(f"❌ Failed to initialize Groq client: {type(e).__name__}: {str(e)}\n")
+                    import traceback
+                    f.write(f"📋 Groq Init Traceback: {traceback.format_exc()}\n")
+                self.groq_client = None
         return self.groq_client
 
     async def generate_summary(self, transcript: str) -> CallSummary:
         """Generate call summary with fallback providers"""
         start_time = time.time()
 
-        # Try OpenAI first
+        # Try OpenAI first (using HTTP to avoid client library issues)
         try:
             summary = await self._generate_with_openai(transcript)
             summary.provider_used = "openai"
             summary.generation_time = time.time() - start_time
             return summary
         except Exception as e:
-            print(f"OpenAI failed: {e}")
+            print(f"OpenAI failed: {str(e)}")
 
-        # Fallback to Groq
+        # Fallback to Groq (if available)
         try:
             summary = await self._generate_with_groq(transcript)
-            summary.provider_used = "groq"
+            summary.provider_used = "groq"  
             summary.generation_time = time.time() - start_time
             return summary
         except Exception as e:
-            print(f"Groq failed: {e}")
+            print(f"Groq failed: {str(e)}")
 
         # Emergency fallback
+        print("Using emergency fallback summary")
         return self._create_emergency_summary(transcript, time.time() - start_time)
 
     async def _generate_with_openai(self, transcript: str) -> CallSummary:
-        """Generate summary using OpenAI"""
-        client = self._get_openai_client()
-        response = await client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a call center AI. Analyze the conversation and provide a structured summary."
-                },
-                {
-                    "role": "user",
-                    "content": f"Analyze this call transcript: {transcript}"
+        """Generate summary using OpenAI via direct HTTP"""
+        import json
+        import aiohttp
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "Authorization": f"Bearer {settings.openai_api_key}",
+                    "Content-Type": "application/json"
                 }
-            ],
-            temperature=0.1,
-            max_tokens=500
-        )
-
-        # Use response for logging/debugging
-        print(f"OpenAI response received: {len(response.choices)} choices")
-
-        # For demo, create a structured response
-        return CallSummary(
-            customer_name="John Doe",
-            issue_type="Billing Inquiry",
-            key_points=[
-                "Customer reports unexpected charges on account",
-                "Needs clarification on billing cycle",
-                "Requests specialist assistance"
-            ],
-            current_status="Needs Escalation",
-            recommended_actions=[
-                "Review account billing history",
-                "Connect with billing specialist",
-                "Provide detailed explanation of charges"
-            ],
-            customer_sentiment="Frustrated but cooperative",
-            provider_used="openai",
-            generation_time=0.0
-        )
+                
+                payload = {
+                    "model": "gpt-4o-mini",
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": """You are a call center AI assistant. Analyze the conversation transcript and extract key information. 
+                            Respond ONLY with a JSON object containing these exact fields:
+                            {
+                                "customer_name": "extracted or 'Customer'",
+                                "issue_type": "brief category",
+                                "key_points": ["point1", "point2", "point3"],
+                                "current_status": "status description",
+                                "recommended_actions": ["action1", "action2", "action3"],
+                                "customer_sentiment": "sentiment description"
+                            }"""
+                        },
+                        {
+                            "role": "user",
+                            "content": f"Analyze this call transcript and extract the information: {transcript}"
+                        }
+                    ],
+                    "temperature": 0.1,
+                    "max_tokens": 500
+                }
+                
+                async with session.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers=headers,
+                    json=payload
+                ) as response:
+                    if response.status != 200:
+                        raise Exception(f"OpenAI API error: {response.status}")
+                    
+                    result = await response.json()
+                    ai_response = result["choices"][0]["message"]["content"].strip()
+                    
+                    # Parse the AI response
+                    try:
+                        ai_data = json.loads(ai_response)
+                        return CallSummary(
+                            customer_name=ai_data.get("customer_name", "Customer"),
+                            issue_type=ai_data.get("issue_type", "General Inquiry"),
+                            key_points=ai_data.get("key_points", ["Customer needs assistance"]),
+                            current_status=ai_data.get("current_status", "In Progress"),
+                            recommended_actions=ai_data.get("recommended_actions", ["Review customer needs"]),
+                            customer_sentiment=ai_data.get("customer_sentiment", "Neutral"),
+                            provider_used="openai",
+                            generation_time=0.0
+                        )
+                    except json.JSONDecodeError:
+                        return self._parse_text_response(ai_response, "openai")
+                        
+        except Exception as e:
+            with open("debug_ai.log", "a") as f:
+                f.write(f"❌ OpenAI HTTP error: {str(e)}\n")
+            raise e
 
     async def _generate_with_groq(self, transcript: str) -> CallSummary:
         """Generate summary using Groq"""
         client = self._get_groq_client()
+        if client is None:
+            raise Exception("Groq client initialization failed")
+            
         response = await client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {
                     "role": "system",
-                    "content": "Analyze this call transcript and provide a helpful summary for the receiving agent."
+                    "content": """You are a call center AI assistant. Analyze the conversation transcript and extract key information. 
+                    Respond ONLY with a JSON object containing these exact fields:
+                    {
+                        "customer_name": "extracted or 'Customer'",
+                        "issue_type": "brief category",
+                        "key_points": ["point1", "point2", "point3"],
+                        "current_status": "status description",
+                        "recommended_actions": ["action1", "action2", "action3"],
+                        "customer_sentiment": "sentiment description"
+                    }"""
                 },
                 {
                     "role": "user",
-                    "content": transcript
+                    "content": f"Analyze this call transcript and extract the information: {transcript}"
                 }
             ],
             temperature=0.1,
             max_tokens=500
         )
 
-        # Use response for logging/debugging
-        print(f"Groq response received: {len(response.choices)} choices")
+        try:
+            # Extract and parse the AI response
+            ai_response = response.choices[0].message.content.strip()
+            print(f"Groq raw response: {ai_response}")
+            
+            # Try to parse JSON response
+            import json
+            try:
+                ai_data = json.loads(ai_response)
+                return CallSummary(
+                    customer_name=ai_data.get("customer_name", "Customer"),
+                    issue_type=ai_data.get("issue_type", "Technical Support"),
+                    key_points=ai_data.get("key_points", ["Customer needs technical assistance"]),
+                    current_status=ai_data.get("current_status", "In Progress"),
+                    recommended_actions=ai_data.get("recommended_actions", ["Provide technical support"]),
+                    customer_sentiment=ai_data.get("customer_sentiment", "Patient"),
+                    provider_used="groq",
+                    generation_time=0.0
+                )
+            except json.JSONDecodeError:
+                # If JSON parsing fails, extract information from text
+                return self._parse_text_response(ai_response, "groq")
+                
+        except Exception as e:
+            print(f"Error processing Groq response: {e}")
+            raise e
 
-        # For demo, create a structured response
+    def _parse_text_response(self, ai_response: str, provider: str) -> CallSummary:
+        """Fallback method to parse text response when JSON parsing fails"""
+        # Simple text analysis for key information
+        lines = ai_response.lower().split('\n')
+        
+        # Extract basic information from text
+        customer_name = "Customer"
+        issue_type = "General Inquiry"
+        key_points = ["Customer needs assistance", "Requires agent attention"]
+        current_status = "In Progress"
+        recommended_actions = ["Review customer needs", "Provide appropriate assistance"]
+        customer_sentiment = "Neutral"
+        
+        # Try to extract more specific information from the response
+        if "login" in ai_response.lower() or "password" in ai_response.lower():
+            issue_type = "Authentication Issue"
+            key_points = ["Customer having login/password issues"]
+            recommended_actions = ["Reset password", "Verify account security"]
+        elif "billing" in ai_response.lower() or "charge" in ai_response.lower():
+            issue_type = "Billing Inquiry"
+            key_points = ["Customer has billing concerns"]
+            recommended_actions = ["Review billing history", "Explain charges"]
+        elif "technical" in ai_response.lower() or "connection" in ai_response.lower():
+            issue_type = "Technical Support"
+            key_points = ["Customer experiencing technical issues"]
+            recommended_actions = ["Troubleshoot technical problems", "Check system status"]
+        
+        # Check sentiment indicators
+        if any(word in ai_response.lower() for word in ["frustrated", "angry", "upset"]):
+            customer_sentiment = "Frustrated"
+        elif any(word in ai_response.lower() for word in ["happy", "satisfied", "pleased"]):
+            customer_sentiment = "Positive"
+        elif any(word in ai_response.lower() for word in ["patient", "understanding"]):
+            customer_sentiment = "Patient"
+        
         return CallSummary(
-            customer_name="Jane Smith",
-            issue_type="Technical Support",
-            key_points=[
-                "Customer experiencing connectivity issues",
-                "Tried basic troubleshooting steps",
-                "Needs advanced technical assistance"
-            ],
-            current_status="In Progress",
-            recommended_actions=[
-                "Run advanced diagnostics",
-                "Check network configuration",
-                "Escalate to technical team if needed"
-            ],
-            customer_sentiment="Patient",
-            provider_used="groq",
+            customer_name=customer_name,
+            issue_type=issue_type,
+            key_points=key_points,
+            current_status=current_status,
+            recommended_actions=recommended_actions,
+            customer_sentiment=customer_sentiment,
+            provider_used=provider,
             generation_time=0.0
         )
 
