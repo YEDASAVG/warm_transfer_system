@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
@@ -30,25 +30,69 @@ export function AgentADashboard({ onInitiateTransfer, onConfirmTransfer }: Agent
     transferStatus,
     transferSummary,
     transferRoomId,
-    agentATransferToken,
+    summary,
     roomName,
     token,
+    participants,
     updateCallState,
     endCall
   } = useAppStore();
 
-  // Monitor transfer status and show modal when summary is ready
-  useEffect(() => {
-    if (transferStatus === 'summary-ready' && transferSummary && !showTransferModal) {
-      console.log('✅ Transfer summary ready, showing modal:', transferSummary.substring(0, 100));
-      setShowTransferModal(true);
-    }
-  }, [transferStatus, transferSummary, showTransferModal]);
+  // Memoized callbacks to prevent infinite loops
+  const handleDisconnected = useCallback(() => {
+    updateCallState({ isActive: false, token: null, roomName: null });
+  }, []);
+
+  const handleTranscript = useCallback((text: string) => {
+    updateCallState({ 
+      transcript: transcript ? transcript + ' ' + text : text 
+    });
+  }, [transcript]);
+
+  const handleParticipantUpdate = useCallback((newParticipants: any[]) => {
+    // Use setTimeout to prevent infinite loops and batch updates
+    setTimeout(() => {
+      updateCallState({ participants: newParticipants });
+    }, 100);
+  }, []); // Remove updateCallState dependency to prevent infinite loops
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleInitiateTransfer = async () => {
+    console.log('🔥 handleInitiateTransfer called');
+    console.log('🔥 transcript length:', transcript.length);
+    console.log('🔥 transcript preview:', transcript.substring(0, 200));
+    console.log('🔥 onInitiateTransfer available:', !!onInitiateTransfer);
+    
+    let transferText = transcript.trim();
+    
+    // If no transcript, use a test conversation for demonstration
+    if (!transferText) {
+      console.log('⚠️ No transcript available, using test conversation');
+      transferText = "Customer: Hi, I'm having trouble with my billing account. The payments aren't going through and I need help. Agent A: I can see there's an issue with your billing. This looks like a complex account problem that requires specialist help. Let me transfer you to our billing specialist who can access advanced account tools.";
+      updateCallState({ transcript: transferText });
+    }
+
+    console.log('📞 Preparing to transfer with transcript:', transferText.substring(0, 100) + '...');
+
+    if (onInitiateTransfer) {
+      try {
+        console.log('📞 Calling onInitiateTransfer with:', transferText.substring(0, 100) + '...');
+        const result = await onInitiateTransfer(transferText);
+        console.log('✅ Transfer initiated successfully, result:', result);
+        setShowTransferModal(true);
+      } catch (error) {
+        console.error('❌ Failed to initiate transfer:', error);
+        updateCallState({ error: 'Failed to initiate transfer. Please try again.' });
+      }
+    } else {
+      console.error('❌ onInitiateTransfer not available');
+      updateCallState({ error: 'Transfer functionality not available.' });
+    }
   };
 
     const handleInitiateTransfer = async () => {
@@ -57,57 +101,42 @@ export function AgentADashboard({ onInitiateTransfer, onConfirmTransfer }: Agent
     console.log('🔥 transcript preview:', transcript.substring(0, 200));
     console.log('🔥 onInitiateTransfer available:', !!onInitiateTransfer);
     
-    const transferText = transcript.trim();
-    
-    // Only allow transfer if there's real transcript
-    if (!transferText) {
-      console.log('❌ No transcript available for transfer');
-      updateCallState({ error: 'Please wait for conversation to be transcribed before transferring.' });
+    if (!transcript.trim()) {
+      console.log('❌ No transcript available');
+      updateCallState({ error: 'No conversation transcript available for transfer. Please ensure there is an active conversation.' });
       return;
     }
 
-    console.log('� Preparing to transfer with transcript:', transferText.substring(0, 100) + '...');
+    const transferText = transcript.trim();
+    console.log('📞 Preparing to transfer with transcript:', transferText.substring(0, 100) + '...');
 
     if (onInitiateTransfer) {
       try {
-        console.log('📞 Calling real transfer API...');
+        console.log('📞 Calling onInitiateTransfer with:', transferText.substring(0, 100) + '...');
         const result = await onInitiateTransfer(transferText);
-        console.log('✅ Transfer API call successful - result:', result);
+        console.log('✅ Transfer initiated successfully, result:', result);
+        setShowTransferModal(true);
       } catch (error) {
-        console.error('❌ Transfer API failed:', error);
-        updateCallState({ error: 'Transfer failed. Please try again.' });
+        console.error('❌ Failed to initiate transfer:', error);
+        updateCallState({ error: 'Failed to initiate transfer. Please try again.' });
       }
     } else {
-      console.log('⚠️ No transfer callback available');
+      console.error('❌ onInitiateTransfer not available');
       updateCallState({ error: 'Transfer functionality not available.' });
     }
   };
 
   const handleConfirmTransfer = async (editedSummary: string) => {
-    console.log('🎯 Confirming transfer with summary:', editedSummary.substring(0, 100) + '...');
     setShowTransferModal(false);
     
     if (onConfirmTransfer) {
       try {
         await onConfirmTransfer(editedSummary);
-        console.log('✅ Transfer confirmed successfully');
-        
-        // Phase 1: Agent A joins transfer room to speak with Agent B
-        if (transferRoomId && agentATransferToken) {
-          console.log('🔄 Phase 1: Agent A joining transfer room for verbal handoff');
-          updateCallState({ 
-            transferStatus: 'agent-a-joining',
-            roomName: transferRoomId,
-            token: agentATransferToken 
-          });
-        }
-        
       } catch (error) {
-        console.error('❌ Failed to confirm transfer:', error);
+        console.error('Failed to confirm transfer:', error);
         updateCallState({ error: 'Failed to confirm transfer. Please try again.' });
       }
     } else {
-      console.log('⚠️ No confirm transfer callback available');
       updateCallState({ error: 'Transfer confirmation not available.' });
     }
   };
@@ -115,7 +144,7 @@ export function AgentADashboard({ onInitiateTransfer, onConfirmTransfer }: Agent
   return (
     <div className="min-h-screen bg-background">
       {/* Status Banner */}
-      <StatusBanner transferStatus={transferStatus as any} userRole="agentA" />
+      <StatusBanner transferStatus={transferStatus} userRole="agentA" />
 
       {/* Header */}
       <div className="bg-card border-b border-border px-4 py-4">
@@ -152,13 +181,10 @@ export function AgentADashboard({ onInitiateTransfer, onConfirmTransfer }: Agent
                 token={token}
                 roomName={roomName}
                 serverUrl={process.env.NEXT_PUBLIC_LIVEKIT_WS_URL || 'wss://localhost:7880'}
-                onDisconnected={() => updateCallState({ isActive: false, token: null, roomName: null })}
-                onTranscript={(text: string) => {
-                  // Update real transcript from actual audio
-                  updateCallState({ 
-                    transcript: transcript ? transcript + ' ' + text : text 
-                  });
-                }}
+                onDisconnected={handleDisconnected}
+                onTranscript={handleTranscript}
+                // Temporarily disabled to prevent infinite loops
+                // onParticipantUpdate={handleParticipantUpdate}
               />
             </CardContent>
           </Card>
@@ -227,6 +253,41 @@ export function AgentADashboard({ onInitiateTransfer, onConfirmTransfer }: Agent
               </CardContent>
             </Card>
 
+            {/* Participant Status */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2">
+                  <User className="w-5 h-5 text-primary" />
+                  Call Participants
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {participants.length > 0 ? (
+                  participants.map((participant, index) => (
+                    <div key={participant.identity} className="flex items-center justify-between p-2 bg-muted rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-3 h-3 rounded-full ${
+                          participant.isSpeaking ? 'bg-green-500 animate-pulse' : 'bg-gray-400'
+                        }`} />
+                        <span className="text-sm text-foreground">
+                          {participant.identity}
+                          {participant.isLocal ? ' (You)' : ''}
+                        </span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {participant.isSpeaking ? 'Speaking' : 'Connected'}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-4 text-muted-foreground">
+                    <User className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No participants detected</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             {/* Transfer Options */}
             <Card>
               <CardHeader className="pb-3">
@@ -236,9 +297,8 @@ export function AgentADashboard({ onInitiateTransfer, onConfirmTransfer }: Agent
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Transfer Controls */}
-                <div className="space-y-3">
-                  {transferStatus === 'none' && (
+                {transferStatus === 'none' && (
+                  <div className="space-y-3">
                     <Button 
                       className="w-full"
                       onClick={handleInitiateTransfer}
@@ -247,58 +307,6 @@ export function AgentADashboard({ onInitiateTransfer, onConfirmTransfer }: Agent
                       <Zap className="w-4 h-4 mr-2" />
                       Initiate Warm Transfer
                     </Button>
-                  )}
-                  
-                  {transferStatus === 'agent-a-joining' && (
-                    <div className="space-y-3">
-                      <div className="text-sm text-muted-foreground">
-                        You are now in the transfer room. Agent B will join shortly.
-                      </div>
-                      <Button 
-                        className="w-full"
-                        onClick={() => updateCallState({ transferStatus: 'verbal-handoff' })}
-                      >
-                        <ArrowRight className="w-4 h-4 mr-2" />
-                        Start Verbal Handoff
-                      </Button>
-                    </div>
-                  )}
-                  
-                  {transferStatus === 'verbal-handoff' && (
-                    <div className="space-y-3">
-                      <div className="text-sm text-muted-foreground bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded">
-                        📢 Speak to Agent B and explain the customer's situation using the AI summary below.
-                      </div>
-                      <Button 
-                        className="w-full"
-                        onClick={() => updateCallState({ transferStatus: 'moving-caller' })}
-                      >
-                        <ArrowRight className="w-4 h-4 mr-2" />
-                        Complete Handoff & Move Caller
-                      </Button>
-                    </div>
-                  )}
-                  
-                  {transferStatus === 'moving-caller' && (
-                    <div className="space-y-3">
-                      <div className="text-sm text-muted-foreground">
-                        Transferring caller to Agent B. You will be disconnected.
-                      </div>
-                      <Button 
-                        className="w-full"
-                        onClick={() => {
-                          updateCallState({ transferStatus: 'complete' });
-                          endCall();
-                        }}
-                        variant="destructive"
-                      >
-                        <PhoneOff className="w-4 h-4 mr-2" />
-                        Exit Transfer (Leave Both Rooms)
-                      </Button>
-                    </div>
-                  )}
-
-                  {transferStatus === 'none' && (
                     <div className="bg-muted rounded-lg p-3">
                       <div className="flex items-center gap-2 mb-2">
                         <Brain className="w-4 h-4 text-primary" />
@@ -308,8 +316,8 @@ export function AgentADashboard({ onInitiateTransfer, onConfirmTransfer }: Agent
                         System will analyze the conversation and generate a summary automatically
                       </p>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
 
                 {transferStatus === 'initiated' && (
                   <div className="text-center py-4">
@@ -319,22 +327,12 @@ export function AgentADashboard({ onInitiateTransfer, onConfirmTransfer }: Agent
                 )}
 
                 {(transferStatus === 'summary-ready' || 
-                  transferStatus === 'agent-a-joining' ||
-                  transferStatus === 'verbal-handoff' ||
-                  transferStatus === 'moving-caller' ||
                   transferStatus === 'inviting-agent' || 
                   transferStatus === 'agent-joining') && (
                   <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-sm">
-                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                      <span className="text-green-600 dark:text-green-400">
-                        {transferStatus === 'summary-ready' && 'Transfer ready'}
-                        {transferStatus === 'agent-a-joining' && 'Joining transfer room'}
-                        {transferStatus === 'verbal-handoff' && 'Speaking with Agent B'}
-                        {transferStatus === 'moving-caller' && 'Moving caller'}
-                        {transferStatus === 'inviting-agent' && 'Inviting Agent B'}
-                        {transferStatus === 'agent-joining' && 'Agent B joining'}
-                      </span>
+                    <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                      Transfer in progress
                     </div>
                     <Button 
                       variant="outline" 
@@ -348,6 +346,12 @@ export function AgentADashboard({ onInitiateTransfer, onConfirmTransfer }: Agent
                     <div className="bg-muted rounded-lg p-3">
                       <p className="text-sm text-foreground">Next: {agentBName}</p>
                       <p className="text-xs text-muted-foreground">Specialist Agent</p>
+                      <div className="mt-2 pt-2 border-t border-border text-xs">
+                        <p className="text-muted-foreground">Status: {transferStatus}</p>
+                        <p className="text-muted-foreground">Transfer Room: {transferRoomId || 'none'}</p>
+                        <p className="text-muted-foreground">Summary: {summary ? 'yes' : 'no'}</p>
+                        <p className="text-muted-foreground">Agent B should join at: /agent-b</p>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -380,15 +384,14 @@ export function AgentADashboard({ onInitiateTransfer, onConfirmTransfer }: Agent
               <CardContent className="flex-1">
                 <ScrollArea className="h-96 w-full">
                   <div className="space-y-4">
-                    {transcript ? (
+                    {transcript && transcript.trim() ? (
                       <div className="space-y-3">
                         {transcript.split('. ').map((sentence, index) => {
                           if (!sentence.trim()) return null;
                           
                           const isCustomer = sentence.toLowerCase().includes('customer:') || 
-                                           sentence.toLowerCase().includes('sure,') ||
-                                           sentence.toLowerCase().includes('hi,') ||
-                                           sentence.toLowerCase().includes('john.smith@email.com');
+                                           sentence.toLowerCase().includes('caller:') ||
+                                           sentence.toLowerCase().includes('user:');
                           
                           return (
                             <div key={index} className={`flex gap-3 ${isCustomer ? 'justify-start' : 'justify-end'}`}>
@@ -401,80 +404,54 @@ export function AgentADashboard({ onInitiateTransfer, onConfirmTransfer }: Agent
                                   {isCustomer ? callerName : agentAName}
                                 </div>
                                 <div className="text-sm">
-                                  {sentence.replace(/^(Customer:|Agent:)\s*/, '').trim()}.
+                                  {sentence.replace(/^(Customer:|Caller:|Agent:|User:)\s*/i, '').trim()}.
                                 </div>
                               </div>
                             </div>
                           );
                         })}
-                        
-                        {/* Typing indicator */}
-                        <div className="flex justify-start">
-                          <div className="bg-muted p-3 rounded-lg">
-                            <div className="flex gap-1">
-                              <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"></div>
-                              <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
-                              <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
-                            </div>
-                          </div>
-                        </div>
                       </div>
                     ) : (
                       <div className="text-center py-12 text-muted-foreground">
                         <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                        <p>Transcript will appear here when the call begins...</p>
+                        <p className="text-lg mb-2">Live Audio/Video Call</p>
+                        <p className="text-sm">
+                          Communicate with the customer via audio and video. Speech recognition will automatically capture conversation.
+                        </p>
+                        
+                        {/* Temporary testing button */}
+                        <div className="mt-6">
+                          <button 
+                            onClick={() => {
+                              const testTranscript = "Customer: Hi, I need help with my account login. Agent: I can help you with that. What seems to be the issue? Customer: I can't access my account after the password reset. Agent: Let me check your account status and help resolve this.";
+                              updateCallState({ transcript: testTranscript });
+                            }}
+                            className="bg-blue-500 text-white px-4 py-2 rounded text-sm hover:bg-blue-600"
+                          >
+                            📝 Add Test Conversation (for transfer testing)
+                          </button>
+                        </div>
+                        
+                        <p className="text-xs mt-4 text-muted-foreground">
+                          Enable microphone permissions for automatic speech-to-text transcription.
+                        </p>
                       </div>
                     )}
                   </div>
                 </ScrollArea>
-
-                {/* AI Insights */}
-                {transcript && (
-                  <div className="mt-4 bg-muted rounded-lg p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Brain className="w-4 h-4 text-primary" />
-                      <span className="text-sm text-foreground">AI Insights</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 text-xs">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Sentiment:</span>
-                        <span className="text-yellow-600 dark:text-yellow-400">Neutral</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Issue Type:</span>
-                        <span className="text-blue-600 dark:text-blue-400">Authentication</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Urgency:</span>
-                        <span className="text-orange-600 dark:text-orange-400">Medium</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Recommended:</span>
-                        <span className="text-green-600 dark:text-green-400">Transfer to Specialist</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </CardContent>
             </Card>
           </div>
         </div>
       </div>
 
-        {/* Debug Panel */}
-        <div className="fixed bottom-4 right-4 bg-black text-white p-3 rounded text-xs max-w-sm">
-          <div className="font-bold mb-2">🔧 Debug Info</div>
-          <div>Transfer Status: {transferStatus}</div>
-          <div>Room ID: {roomName}</div>
-          <div>Transcript Length: {transcript.length}</div>
-          <div>Transcript Preview: {transcript.substring(0, 50)}...</div>
-          <div>Summary Length: {transferSummary?.length || 0}</div>
-          <div>onInitiateTransfer: {onInitiateTransfer ? '✅' : '❌'}</div>
-          <div>Speech API: {typeof window !== 'undefined' && 'webkitSpeechRecognition' in window ? '✅' : '❌'}</div>
-        </div>      {/* Transfer Summary Modal */}
+      {/* Transfer Summary Modal */}
       <TransferSummaryModal
         isOpen={showTransferModal}
-        onClose={() => setShowTransferModal(false)}
+        onClose={() => {
+          console.log('🚪 Transfer modal closed');
+          setShowTransferModal(false);
+        }}
         onConfirm={handleConfirmTransfer}
         summary={transferSummary}
         callerName={callerName}

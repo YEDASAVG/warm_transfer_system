@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,10 +15,17 @@ export default function AgentBPage() {
     roomName,
     token,
     participantName,
+    transferRoomId,
+    transferStatus,
+    transferSummary,
+    transcript,
+    summary,
+    callerName,
     
     // Actions from Zustand store
     generateToken,
     setParticipantInfo,
+    updateCallState,
     isLoading,
     error,
     clearError,
@@ -28,6 +35,43 @@ export default function AgentBPage() {
   const [name, setName] = useState('');
   const [isJoining, setIsJoining] = useState(false);
   const [localError, setLocalError] = useState<string>('');
+
+  // Debug transfer state and force refresh from localStorage
+  useEffect(() => {
+    console.log('🔍 Agent B - Transfer state changed:', { 
+      transferStatus, 
+      transferRoomId, 
+      hasSummary: !!summary,
+      hasTranscript: !!transcript 
+    });
+    
+    // Force refresh from localStorage every 2 seconds to catch cross-tab updates
+    const interval = setInterval(() => {
+      const storedState = localStorage.getItem('warm-transfer-store');
+      if (storedState) {
+        try {
+          const parsed = JSON.parse(storedState);
+          console.log('🔄 Agent B - localStorage state:', parsed.state);
+          
+          // If localStorage has a transfer but our state doesn't, update it
+          if (parsed.state?.transferStatus !== 'none' && transferStatus === 'none') {
+            console.log('🔄 Forcing state update from localStorage');
+            updateCallState({
+              transferStatus: parsed.state.transferStatus,
+              transferRoomId: parsed.state.transferRoomId,
+              transferSummary: parsed.state.transferSummary,
+              summary: parsed.state.summary,
+              transcript: parsed.state.transcript
+            });
+          }
+        } catch (e) {
+          console.log('Error parsing localStorage:', e);
+        }
+      }
+    }, 2000);
+    
+    return () => clearInterval(interval);
+  }, [transferStatus, transferRoomId, summary, transcript, updateCallState]);
 
   const handleJoinRoom = async () => {
     if (!name.trim()) {
@@ -40,11 +84,25 @@ export default function AgentBPage() {
     clearError();
 
     try {
-      // Use the same shared room name as caller and agent A
-      const roomName = 'main-call-room';
-      
-      await generateToken(roomName, name, 'agent_b');
-      setParticipantInfo(name, 'agent_b');
+      // Check if there's an active transfer
+      if (transferStatus === 'inviting-agent' && transferRoomId) {
+        console.log('Agent B joining transfer room:', transferRoomId);
+        // For transfer, use the specific transfer room
+        await generateToken(transferRoomId, name, 'agent_b');
+        setParticipantInfo(name, 'agent_b');
+        
+        // Set room as active for Agent B
+        updateCallState({ 
+          isActive: true, 
+          roomName: transferRoomId,
+          roomId: transferRoomId,
+          transferStatus: 'agent-joining'
+        });
+      } else {
+        // No active transfer - show error
+        setLocalError('No active transfer available. Agent B can only join during warm transfers initiated by Agent A.');
+        return;
+      }
       
     } catch (err) {
       setLocalError('Failed to join room. Please check your connection and try again.');
@@ -78,6 +136,11 @@ export default function AgentBPage() {
                 <Badge variant="default" className="bg-purple-500">
                   🟣 Specialist Agent
                 </Badge>
+                {(summary || transcript) && (
+                  <Badge variant="default" className="bg-green-500">
+                    ✅ With Context
+                  </Badge>
+                )}
               </div>
             </div>
             <div className="flex gap-3">
@@ -91,13 +154,129 @@ export default function AgentBPage() {
           </div>
 
           {/* Room Component */}
-          <div className="h-[600px]">
-            <RoomComponent
-              token={token}
-              serverUrl={process.env.NEXT_PUBLIC_LIVEKIT_WS_URL || 'wss://localhost:7880'}
-              roomName={roomName}
-              onDisconnected={handleLeaveRoom}
-            />
+          <div className="grid lg:grid-cols-3 gap-6">
+            {/* Live Call */}
+            <div className="lg:col-span-2">
+              <div className="h-[600px]">
+                <RoomComponent
+                  token={token}
+                  serverUrl={process.env.NEXT_PUBLIC_LIVEKIT_WS_URL || 'wss://localhost:7880'}
+                  roomName={roomName}
+                  onDisconnected={handleLeaveRoom}
+                />
+              </div>
+            </div>
+
+            {/* Transfer Context */}
+            <div className="lg:col-span-1 space-y-6">
+              {/* AI Summary */}
+              {summary && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-lg">
+                      🧠 AI Summary
+                    </CardTitle>
+                    <CardDescription>
+                      Context from Agent A
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-3">
+                      <div>
+                        <span className="text-sm font-medium text-foreground">Customer:</span>
+                        <p className="text-sm text-muted-foreground">{summary.customer_name}</p>
+                      </div>
+                      <div>
+                        <span className="text-sm font-medium text-foreground">Issue Type:</span>
+                        <p className="text-sm text-muted-foreground">{summary.issue_type}</p>
+                      </div>
+                      <div>
+                        <span className="text-sm font-medium text-foreground">Status:</span>
+                        <p className="text-sm text-muted-foreground">{summary.current_status}</p>
+                      </div>
+                      <div>
+                        <span className="text-sm font-medium text-foreground">Sentiment:</span>
+                        <p className="text-sm text-muted-foreground">{summary.customer_sentiment}</p>
+                      </div>
+                      <div>
+                        <span className="text-sm font-medium text-foreground">Key Points:</span>
+                        <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
+                          {summary.key_points.map((point, index) => (
+                            <li key={index}>{point}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <span className="text-sm font-medium text-foreground">Recommended Actions:</span>
+                        <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
+                          {summary.recommended_actions.map((action, index) => (
+                            <li key={index}>{action}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Full Conversation */}
+              {transcript && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-lg">
+                      💬 Full Conversation
+                    </CardTitle>
+                    <CardDescription>
+                      Complete transcript from Agent A
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="bg-muted rounded-lg p-4 max-h-64 overflow-y-auto">
+                      <div className="space-y-2 text-sm">
+                        {transcript.split('. ').map((sentence, index) => {
+                          if (!sentence.trim()) return null;
+                          
+                          const isCustomer = sentence.toLowerCase().includes('customer:') || 
+                                           sentence.toLowerCase().includes('caller:');
+                          
+                          return (
+                            <div key={index} className={`p-2 rounded ${
+                              isCustomer 
+                                ? 'bg-blue-50 dark:bg-blue-900/20' 
+                                : 'bg-green-50 dark:bg-green-900/20'
+                            }`}>
+                              <span className={`font-medium ${
+                                isCustomer ? 'text-blue-700 dark:text-blue-400' : 'text-green-700 dark:text-green-400'
+                              }`}>
+                                {isCustomer ? callerName || 'Customer' : 'Agent A'}:
+                              </span>
+                              <span className="ml-2 text-foreground">
+                                {sentence.replace(/^(Customer:|Caller:|Agent:|User:)\s*/i, '').trim()}.
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* No Context Warning */}
+              {!summary && !transcript && transferStatus === 'agent-joining' && (
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-center py-8">
+                      <div className="text-4xl mb-4">⚠️</div>
+                      <h3 className="text-lg font-medium text-foreground mb-2">No Transfer Context</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Transfer context not available. Please ask the customer to repeat their issue.
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
           </div>
 
           {/* Agent Controls */}
@@ -159,6 +338,19 @@ export default function AgentBPage() {
           </CardHeader>
           
           <CardContent className="space-y-6">
+            {/* Transfer Status Indicator - Only show if transfer is actually ready */}
+            {(transferStatus === 'inviting-agent' || transferStatus === 'summary-ready') && transferRoomId && (
+              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                  <span className="text-green-700 dark:text-green-400 font-semibold">Transfer Ready</span>
+                </div>
+                <p className="text-sm text-green-600 dark:text-green-300">
+                  A warm transfer is ready. Join to receive the call with full context.
+                </p>
+              </div>
+            )}
+            
             <div className="space-y-2">
               <label className="block text-sm font-medium text-foreground">
                 Agent Name

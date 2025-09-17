@@ -17,6 +17,8 @@ export default function AgentAPage() {
     
     // Actions from Zustand store
     createRoom,
+    generateToken,
+    updateCallState,
     initiateTransfer,
     confirmTransfer,
     setParticipantInfo,
@@ -31,9 +33,13 @@ export default function AgentAPage() {
   const [localError, setLocalError] = useState<string>('');
 
   const handleInitiateTransfer = async (transcript: string) => {
+    console.log('🔄 Agent A handleInitiateTransfer called with transcript:', transcript.substring(0, 100));
     if (!roomId) throw new Error('No room ID available');
     
-    return await initiateTransfer(roomId, transcript);
+    console.log('📞 Calling store initiateTransfer with roomId:', roomId);
+    const result = await initiateTransfer(roomId, transcript);
+    console.log('✅ Transfer result:', result);
+    return result;
   };
 
   const handleConfirmTransfer = async (summary: string) => {
@@ -54,7 +60,19 @@ export default function AgentAPage() {
 
     try {
       setParticipantInfo(name, 'agent_a');
-      await createRoom('agent-a-room', name, 'agent_a');
+      // Agent A should join the existing room created by caller, not create a new one
+      await generateToken('main-call-room', name, 'agent_a');
+      // Manually set the room as active since generateToken doesn't do this
+      updateCallState({ 
+        isActive: true, 
+        roomName: 'main-call-room',
+        roomId: 'main-call-room'
+      });
+      
+      // Start the call timer manually since generateToken doesn't start it
+      const { startDurationTimer } = useAppStore.getState();
+      startDurationTimer();
+      
     } catch (error) {
       console.error('Failed to join room:', error);
       setLocalError('Failed to join dashboard. Please try again.');

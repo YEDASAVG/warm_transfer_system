@@ -3,7 +3,7 @@ import { Alert, AlertDescription } from './ui/alert';
 import { CheckCircle, Clock, Users, Zap, Brain } from 'lucide-react';
 
 interface StatusBannerProps {
-  transferStatus: 'none' | 'initiated' | 'summary-ready' | 'inviting-agent' | 'agent-joining' | 'complete';
+  transferStatus: 'none' | 'initiated' | 'summary-ready' | 'agent-a-joining' | 'verbal-handoff' | 'inviting-agent' | 'agent-joining' | 'moving-caller' | 'complete';
   userRole: 'caller' | 'agentA' | 'agentB';
 }
 
@@ -27,6 +27,39 @@ export function StatusBanner({ transferStatus, userRole }: StatusBannerProps) {
           message: userRole === 'caller' 
             ? 'Transfer summary ready. Connecting with specialist...' 
             : 'AI transfer summary ready for review',
+          variant: 'default' as const
+        };
+      
+      case 'agent-a-joining':
+        return {
+          icon: <Users className="h-4 w-4" />,
+          message: userRole === 'caller' 
+            ? 'Agent is joining transfer room to brief the specialist...' 
+            : userRole === 'agentA'
+              ? 'Joining transfer room to brief Agent B...'
+              : 'Agent A is joining to provide context...',
+          variant: 'default' as const
+        };
+      
+      case 'verbal-handoff':
+        return {
+          icon: <Zap className="h-4 w-4" />,
+          message: userRole === 'caller' 
+            ? 'Agent is explaining your case to the specialist...' 
+            : userRole === 'agentA'
+              ? 'Explain the case context to Agent B via voice...'
+              : 'Agent A is explaining the case context...',
+          variant: 'default' as const
+        };
+      
+      case 'moving-caller':
+        return {
+          icon: <Users className="h-4 w-4" />,
+          message: userRole === 'caller' 
+            ? 'Connecting you directly with the specialist...' 
+            : userRole === 'agentA'
+              ? 'Moving caller to specialist room...'
+              : 'Caller is being connected to your room...',
           variant: 'default' as const
         };
       

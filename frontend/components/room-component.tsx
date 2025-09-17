@@ -3,14 +3,10 @@
 import React, { useEffect, useState } from 'react';
 import {
   LiveKitRoom,
-  GridLayout,
-  ParticipantTile,
   RoomAudioRenderer,
   ControlBar,
-  useTracks,
-  TrackLoop,
+  useParticipants,
 } from '@livekit/components-react';
-import { Track } from 'livekit-client';
 
 
 interface RoomComponentProps {
@@ -98,9 +94,9 @@ export function RoomComponent({
   }
 
   return (
-    <div className="h-96 w-full bg-black rounded-lg overflow-hidden border-2 border-border">
+    <div className="h-96 w-full bg-gray-100 dark:bg-gray-800 rounded-lg overflow-hidden border-2 border-border">
       <LiveKitRoom
-        video={true}
+        video={false}
         audio={true}
         token={token}
         serverUrl={serverUrl}
@@ -120,7 +116,7 @@ export function RoomComponent({
         {/* Real Audio Renderer */}
         <RoomAudioRenderer />
         
-        {/* Participants Grid with Real Transcription */}
+        {/* Audio-Only Participants */}
         <ParticipantComponent onTranscript={onTranscript} />
         
         {/* Real Audio Controls */}
@@ -131,57 +127,103 @@ export function RoomComponent({
 }
 
 function ParticipantComponent({ onTranscript }: { onTranscript?: (text: string) => void }) {
-  const tracks = useTracks(
-    [
-      { source: Track.Source.Camera, withPlaceholder: true },
-      { source: Track.Source.Microphone, withPlaceholder: false },
-      { source: Track.Source.ScreenShare, withPlaceholder: false },
-    ],
-    { onlySubscribed: false }
-  );
+  const participants = useParticipants();
 
-  // Get microphone track for real transcription
-  // Audio track for recording status
-  const micTrack = useTracks([Track.Source.Microphone], { onlySubscribed: false })[0];
-
-  // Real audio transcription from LiveKit track
+  // Simple mock transcript generation for demonstration
   useEffect(() => {
-    if (micTrack?.publication?.track && onTranscript) {
-      console.log('🎤 Real audio transcription from LiveKit track started');
-      
-      // TODO: Process actual audio track data for transcription
-      // For now, we'll use the fact that there's a real microphone connected
-      const interval = setInterval(() => {
-        if (micTrack.publication?.isEnabled) {
-          // This would be replaced with actual audio processing
-          console.log('🎤 Processing real audio data...');
-        }
-      }, 3000);
-      
-      return () => clearInterval(interval);
+    if (!onTranscript) {
+      console.log('🎤 No transcript callback available');
+      return;
     }
-  }, [micTrack, onTranscript]);
+
+    if (participants.length > 0) {
+      console.log('🎤 Setting up mock transcript generation for', participants.length, 'participants');
+      
+      // Generate mock conversation transcript
+      const mockTranscripts = [
+        "Customer: Hi, I'm having trouble with my account login",
+        "Agent A: I'd be happy to help you with that login issue",
+        "Customer: I keep getting an error message when I try to sign in",
+        "Agent A: Let me check your account status for you",
+        "Customer: The error says my password is incorrect but I'm sure it's right",
+        "Agent A: I can see the issue here. This looks like it needs our security specialist",
+        "Customer: Okay, whatever you think is best",
+        "Agent A: I'm going to transfer you to Agent B who specializes in account security"
+      ];
+
+      let transcriptIndex = 0;
+      
+      const addMockTranscript = () => {
+        if (transcriptIndex < mockTranscripts.length) {
+          const transcript = mockTranscripts[transcriptIndex];
+          console.log('🗣️ Adding mock transcript:', transcript);
+          onTranscript(transcript + '. ');
+          transcriptIndex++;
+        }
+      };
+
+      // Add a new transcript every 5 seconds
+      const interval = setInterval(addMockTranscript, 5000);
+      
+      // Add first transcript immediately
+      setTimeout(addMockTranscript, 1000);
+
+      return () => {
+        clearInterval(interval);
+      };
+    }
+  }, [participants, onTranscript]);
 
   return (
-    <>
-      <GridLayout tracks={tracks}>
-        <TrackLoop tracks={tracks}>
-          <ParticipantTile />
-        </TrackLoop>
-      </GridLayout>
+    <div className="p-4 space-y-3">
+      <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Participants</h3>
       
-      {/* Real Microphone Status Indicator */}
-      {micTrack?.publication?.isEnabled && onTranscript && (
-        <div className="absolute top-2 right-2 bg-red-500 text-white px-2 py-1 rounded text-xs z-10">
-          🎤 Live Audio
+      {participants.map((participant) => (
+        <div 
+          key={participant.identity} 
+          className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
+            participant.isSpeaking 
+              ? 'bg-green-100 dark:bg-green-900/20 border-l-4 border-green-500' 
+              : 'bg-gray-50 dark:bg-gray-700'
+          }`}
+        >
+          <div className={`w-3 h-3 rounded-full ${
+            participant.isSpeaking ? 'bg-green-500 animate-pulse' : 'bg-gray-400'
+          }`} />
+          
+          <div className="flex-1">
+            <div className="font-medium text-gray-900 dark:text-gray-100">
+              {participant.name || participant.identity}
+            </div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">
+              {participant.isLocal ? 'You' : 'Remote'} • 
+              {participant.isSpeaking ? ' Speaking' : ' Silent'}
+            </div>
+          </div>
+          
+          {/* Microphone status */}
+          <div className="text-lg">
+            🎤
+          </div>
+        </div>
+      ))}
+      
+      {participants.length === 0 && (
+        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+          Waiting for participants to join...
         </div>
       )}
       
-      {micTrack && !micTrack.publication?.isEnabled && (
-        <div className="absolute top-2 right-2 bg-gray-500 text-white px-2 py-1 rounded text-xs z-10">
-          🎤 Muted
+      {participants.length > 0 && (
+        <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+          <div className="text-sm text-blue-600 dark:text-blue-400 font-medium">
+            📝 Mock Transcript Active
+          </div>
+          <div className="text-xs text-blue-500 dark:text-blue-300 mt-1">
+            Generating sample conversation for demo
+          </div>
         </div>
       )}
-    </>
+    </div>
   );
 }

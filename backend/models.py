@@ -3,6 +3,7 @@ from typing import Literal
 from datetime import datetime
 
 
+# Room and participant models
 class RoomCreateRequest(BaseModel):
     room_name: str
     participant_name: str
@@ -16,6 +17,13 @@ class RoomCreateResponse(BaseModel):
     expires_at: int
 
 
+class ParticipantInfo(BaseModel):
+    identity: str
+    role: str
+    connected: bool
+
+
+# Transfer models
 class TransferRequest(BaseModel):
     caller_room_id: str
     agent_a_id: str
@@ -36,31 +44,30 @@ class CallSummary(BaseModel):
 class TransferResponse(BaseModel):
     transfer_id: str
     transfer_room_id: str
+    agent_a_token: str
     agent_b_token: str
     summary: CallSummary
 
 
-class HealthResponse(BaseModel):
-    status: str
-    message: str
-    timestamp: datetime
-
-
-class ParticipantInfo(BaseModel):
-    identity: str
-    role: str
-    connected: bool
-
-
+# Transcription models (for future real-time audio transcription)
 class TranscriptionRequest(BaseModel):
     audio_data: str  # Base64 encoded audio data
+    speaker_id: str  # Keep consistent with frontend
     room_id: str
-    participant_id: str
     audio_format: str = "webm"  # webm, wav, mp3, etc.
 
 
 class TranscriptionResponse(BaseModel):
     transcript: str
+    speaker_id: str
     confidence: float
-    processing_time: float
+    timestamp: datetime
+    processing_time: float = 0.0
     language: str = "en"
+
+
+# System models
+class HealthResponse(BaseModel):
+    status: str
+    message: str
+    timestamp: datetime

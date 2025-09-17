@@ -170,8 +170,6 @@ class LLMService:
 
     async def _generate_with_openai(self, transcript: str) -> CallSummary:
         """Generate summary using OpenAI via direct HTTP"""
-        import json
-        import aiohttp
         
         try:
             async with aiohttp.ClientSession() as session:
@@ -274,7 +272,6 @@ class LLMService:
             print(f"Groq raw response: {ai_response}")
             
             # Try to parse JSON response
-            import json
             try:
                 ai_data = json.loads(ai_response)
                 return CallSummary(
@@ -298,7 +295,6 @@ class LLMService:
     def _parse_text_response(self, ai_response: str, provider: str) -> CallSummary:
         """Fallback method to parse text response when JSON parsing fails"""
         # Simple text analysis for key information
-        lines = ai_response.lower().split('\n')
         
         # Extract basic information from text
         customer_name = "Customer"
@@ -382,7 +378,13 @@ class TransferService:
         # Generate AI summary
         summary = await self.llm.generate_summary(transcript)
         
-        # Generate token for Agent B
+        # Generate tokens for both Agent A and Agent B to join transfer room
+        agent_a_token = self.livekit.generate_token(
+            transfer_room_id, 
+            agent_a_id, 
+            "agent_a"
+        )
+        
         agent_b_token = self.livekit.generate_token(
             transfer_room_id, 
             "agent_b", 
@@ -401,6 +403,7 @@ class TransferService:
         return {
             "transfer_id": transfer_id,
             "transfer_room_id": transfer_room_id,
+            "agent_a_token": agent_a_token,
             "agent_b_token": agent_b_token,
             "summary": summary
         }
@@ -475,7 +478,7 @@ class TranscriptionService:
             # Clean up temporary file if it exists
             try:
                 os.unlink(temp_file_path)
-            except:
+            except FileNotFoundError:
                 pass
             
             # Fallback to mock transcription for development

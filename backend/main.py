@@ -11,9 +11,13 @@ load_dotenv()
 # Import our modules
 from config import settings
 from models import (
-    RoomCreateRequest, RoomCreateResponse, TransferRequest, 
-    TransferResponse, HealthResponse,
-    TranscriptionRequest, TranscriptionResponse
+    RoomCreateRequest, 
+    RoomCreateResponse, 
+    TransferRequest, 
+    TransferResponse,
+    TranscriptionRequest,
+    TranscriptionResponse,
+    HealthResponse
 )
 from services import LiveKitService, LLMService, TransferService, TranscriptionService
 
@@ -106,6 +110,7 @@ async def initiate_transfer(request: TransferRequest):
         return TransferResponse(
             transfer_id=result["transfer_id"],
             transfer_room_id=result["transfer_room_id"],
+            agent_a_token=result["agent_a_token"],
             agent_b_token=result["agent_b_token"],
             summary=result["summary"]
         )
@@ -134,9 +139,11 @@ async def transcribe_audio(request: TranscriptionRequest):
         
         return TranscriptionResponse(
             transcript=result["transcript"],
+            speaker_id=request.speaker_id,
             confidence=result["confidence"],
-            processing_time=result["processing_time"],
-            language=result["language"]
+            timestamp=datetime.now(),
+            processing_time=result.get("processing_time", 0.0),
+            language=result.get("language", "en")
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
